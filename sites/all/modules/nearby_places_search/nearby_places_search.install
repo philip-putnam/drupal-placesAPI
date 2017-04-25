@@ -1,0 +1,82 @@
+<?php
+
+/**
+ * @file
+ * Near By Place Search install file.
+ */
+
+/**
+ * Implements hook_requirements().
+ */
+function nearby_places_search_requirements($phase) {
+  $requirements = array();
+
+  if ($phase == 'runtime') {
+    $t = get_t();
+    // Whether or not an API key or client id is provided.
+    $key_provided = FALSE;
+
+    switch (variable_get('nearby_places_search_auth_method')) {
+      case 1:
+        $key = variable_get('nearby_places_search_apikey', FALSE);
+        if (!empty($key)) {
+          $key_provided = TRUE;
+        }
+        break;
+
+      case 2:
+        $client_id = variable_get('nearby_places_search_client_id', FALSE);
+        if (!empty($client_id)) {
+          $key_provided = TRUE;
+        }
+        break;
+    }
+
+    if (!$key_provided) {
+      $requirements['nearby_places_search_map'] = array(
+        'title' => $t('Nearby Places Search'),
+        'severity' => REQUIREMENT_ERROR,
+        'description' => $t('Google Maps API key or Client ID was not found. As of 2016/06/22, keyless access is no longer supported and it may impact rendering of maps. For more information visit: <a href="@link">@link</a>', array('@link' => 'http://googlegeodevelopers.blogspot.ca/2016/06/building-for-scale-updates-to-google.html')),
+      );
+    }
+
+    if (nearby_places_search_library_check()) {
+      $requirements['Nearbyplaces_marker_library'] = array(
+        'title' => $t('Nearby places marker library'),
+        'severity' => REQUIREMENT_ERROR,
+        'description' => $t('Nearby places search marker library could not be found. You need to download <a target="_blank" href="@library_exteranl_path">Marker library</a>, extract the archive and rename the folder as "nearby_places_search.markers". Place the marker library directory in the sites/all/libraries directory on your server.', array('@library_exteranl_path' => 'https://github.com/ashwinshaharkar/nearbyplace.markers.library')),
+      );
+    }
+  }
+
+  return $requirements;
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function nearby_places_search_uninstall() {
+  $result = db_select('variable', 'v')
+      ->fields('v', array('name'))
+      ->condition('name', db_like('nearby_places_search_') . '%', 'LIKE')
+      ->execute();
+
+  foreach ($result as $row) {
+    variable_del($row->name);
+  }
+}
+
+/**
+ * Implements hook_install().
+ */
+function nearby_places_search_install() {
+  $default_arr = array(
+    'atm' => 'atm',
+    'bank' => 'bank',
+    'hospital' => 'hospital',
+    'park' => 'park',
+    'restaurant' => 'restaurant',
+    'school' => 'school',
+  );
+  variable_set('nearby_places_search_types', $default_arr);
+}

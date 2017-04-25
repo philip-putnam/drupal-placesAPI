@@ -1,0 +1,249 @@
+<?php
+
+/**
+ * @file
+ * Near By Place Search module file.
+ */
+
+/**
+ * Implements hook_help().
+ */
+function nearby_places_search_help($path, $arg) {
+  switch ($path) {
+    case 'admin/help#nearby_places_search':
+      // Return a line-break version of the module README.md.
+      return check_markup(file_get_contents(dirname(__FILE__) . "/README.md"));
+  }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function nearby_places_search_menu() {
+  $items = array();
+  // Module settings.
+  $items['admin/config/content/nearby-places-search'] = array(
+    'title' => 'Nearby Places Search Settings',
+    'description' => 'Configuration for the Nearby Places Search module',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('nearby_places_search_settings_form'),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'nearby_places_search_admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function nearby_places_search_block_info() {
+  $blocks['nearby_places_search_block'] = array(
+    'info' => t('Nearby Places Search'),
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function nearby_places_search_block_view($delta = '') {
+  $block = array();
+  switch ($delta) {
+    case 'nearby_places_search_block':
+      $block['content'] = drupal_get_form('nearby_places_search_search_form');
+      break;
+  }
+  return $block;
+}
+
+/**
+ * Implements Nearby places search form.
+ */
+function nearby_places_search_search_form($form, &$form_state) {
+  global $base_path;
+  $types = array();
+  $get_default_latitude = variable_get('nearby_places_search_latitude', '18.5204303');
+  $get_default_longitude = variable_get('nearby_places_search_longitude', '73.8567436');
+  $get_default_loc_text = variable_get('nearby_places_search_location_title', 'Pune, Maharashtra, India');
+  $get_default_radius = variable_get('nearby_places_search_radius', 1000);
+  $get_default_types = variable_get('nearby_places_search_types', array());
+  $module_path = drupal_get_path('module', 'nearby_places_search');
+
+  $marker_library_path = '';
+  if (nearby_places_search_library_check()) {
+    $status_report = $base_path . 'admin/reports/status';
+    $help_link = $base_path . 'admin/help/nearby_places_search';
+    $missing_marker_library = t('Nearby places search marker library could not be found. Please check <a target="_blank" href="@status_report">Status report</a> or <a target="_blank" href="@help_link">Help</a> for configuration settings.', array('@status_report' => $status_report, '@help_link' => $help_link));
+    drupal_set_message($missing_marker_library, 'warning');
+  }
+  else {
+    $marker_library_path = $base_path . libraries_get_path('nearby_places_search.markers');
+  }
+  drupal_set_message(nearby_places_search_build_api_msg(), 'warning');
+
+  foreach ($get_default_types as $key => $value) {
+    if ($value) {
+      $types[$key] = ucwords(str_replace('_', ' ', $key));
+    }
+    else {
+      unset($get_default_types[$key]);
+    }
+  }
+  if (empty($get_default_types)) {
+    $types = array(
+      'atm' => t('Atm'),
+      'bank' => t('Bank'),
+      'hospital' => t('Hospital'),
+      'park' => t('Park'),
+      'restaurant' => t('Restaurant'),
+      'school' => t('School'),
+    );
+  }
+
+  $form['#attached']['css'] = array(
+    $module_path . '/css/nearby_places_search.css',
+  );
+
+  $api_url = nearby_places_search_build_api_url();
+  $form['#attached']['js'] = array(
+    $module_path . '/js/nearby_places_search.js' => array('scope' => 'footer'),
+    "$api_url" => array('type' => 'external', 'scope' => 'footer'),
+  );
+
+  $form['#attached']['js'][] = array(
+    'data' => array(
+      'nearby_places_variable' => array(
+        'img_path' => $marker_library_path,
+        'default_latitude' => $get_default_latitude,
+        'default_longitude' => $get_default_longitude,
+        'default_radius' => $get_default_radius,
+      ),
+    ),
+    'type' => 'setting',
+  );
+
+  $form['types'] = array(
+    '#type' => 'radios',
+    '#title' => t('Location Types'),
+    '#options' => $types,
+    '#attributes' => array('class' => array('radio_btn')),
+  );
+
+  $form['address'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Address'),
+    '#default_value' => $get_default_loc_text,
+  );
+
+  $form['custom-btn'] = array(
+    '#markup' => '<button id="cust_btn" type="button" class="cust_btn">' . t('Search') . '</button>',
+  );
+
+  $form['latitude'] = array(
+    '#type' => 'hidden',
+    '#attributes' => array('id' => 'latitude', 'placeholder' => t('Latitude')),
+    '#default_value' => $get_default_latitude,
+  );
+
+  $form['longitude'] = array(
+    '#type' => 'hidden',
+    '#attributes' => array('id' => 'longitude', 'placeholder' => t('Longitude')),
+    '#default_value' => $get_default_longitude,
+  );
+  var_dump($form);
+
+  return $form;
+}
+
+/**
+ * Implements theme function for Nearby places search form.
+ */
+function nearby_places_search_theme($existing, $type, $theme, $path) {
+  $items['nearby_places_search_search_form'] = array(
+    'render element' => 'form',
+    'template' => 'nearby_places_search_search_form',
+    'path' => drupal_get_path('module', 'nearby_places_search') . '/template/form',
+  );
+
+  return $items;
+}
+
+/**
+ * Builds the javascript maps api url based on authentication method.
+ */
+function nearby_places_search_build_api_url() {
+  // Google api url.
+  $api_url = '//maps.googleapis.com/maps/api/js';
+  // Array to hold query parameters for the google maps url.
+  // Including version number as it's required for Premium plans.
+  // https://developers.google.com/maps/documentation/javascript/versions
+  $query = array('v' => '3', 'libraries' => 'places');
+
+  switch (variable_get('nearby_places_search_auth_method')) {
+    case 1:
+      $key = variable_get('nearby_places_search_apikey', FALSE);
+      if (!empty($key)) {
+        $query['key'] = $key;
+      }
+      break;
+
+    case 2:
+      $client_id = variable_get('nearby_places_search_client_id', FALSE);
+      $private_key = variable_get('nearby_places_search_private_key', FALSE);
+      if (!empty($client_id)) {
+        $query['client'] = $client_id;
+        if (!empty($private_key)) {
+          $query['signature'] = $private_key;
+        }
+      }
+      break;
+  }
+
+  // Add query params to API url.
+  if (!empty($query)) {
+    $api_url .= '?' . drupal_http_build_query($query);
+  }
+
+  return $api_url;
+}
+
+/**
+ * Verifies marker library is present.
+ */
+function nearby_places_search_library_check() {
+  if (function_exists('libraries_get_libraries')) {
+    $library = libraries_get_libraries();
+    if (!isset($library['nearby_places_search.markers'])) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Builds the druapl warning message based on authentication method.
+ */
+function nearby_places_search_build_api_msg() {
+  global $base_url;
+  $t = get_t();
+  $api_msg = '';
+  $nearby_places_search_config_url = $base_url . '/admin/config/content/nearby-places-search';
+
+  switch (variable_get('nearby_places_search_auth_method', 1)) {
+    case 1:
+      $key = variable_get('nearby_places_search_apikey', FALSE);
+      if (empty($key)) {
+        $api_msg = $t('Google Map API key was not found. Please configure or enter a valid API key from <a target="_blank" href="@config_path">configuration</a> page.', array('@config_path' => $nearby_places_search_config_url));
+      }
+      break;
+    case 2:
+      $client_id = variable_get('nearby_places_search_client_id', FALSE);
+      if (empty($client_id)) {
+        $api_msg = $t('Google Map client id was not found. Please configure or enter a valid client id from <a target="_blank" href="@config_path">configuration</a> page.', array('@config_path' => $nearby_places_search_config_url));
+      }
+      break;
+  }
+
+  return $api_msg;
+}

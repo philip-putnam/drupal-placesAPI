@@ -1,0 +1,15 @@
+name = Nearby Places Search
+description = Nearby Places Search by place types with Google Map API
+package = Other
+core = 7.x
+dependencies[] = jquery_update (>7.x-2.5)
+dependencies[] = libraries
+help = admin/help/nearby_places_search
+configure = admin/config/content/nearby-places-search
+
+; Information added by Drupal.org packaging script on 2016-10-19
+version = "7.x-1.3"
+core = "7.x"
+project = "nearby_places_search"
+datestamp = "1476868140"
+
